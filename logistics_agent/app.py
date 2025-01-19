@@ -674,10 +674,23 @@ mongodb_checkpointer = MongoDBSaver(mongo_client, DB_NAME, "state_store")
 
 graph = workflow.compile(checkpointer=mongodb_checkpointer)
 
-
-
 #Step8
 st.set_page_config(page_title="AI Supply Chain System", layout="wide")
+st.markdown(
+    """
+    <style>
+    /* Center the page and make it wide */
+    .block-container {
+        max-width: 85%; /* Adjust width to make it wide */
+        margin: 0 auto; /* Center the content horizontally */
+        padding-top: 2rem; /* Add some space at the top */
+        padding-bottom: 2rem; /* Add some space at the bottom */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 # Initialize session state for thread ID and message history
 if "thread_id" not in st.session_state:
@@ -691,15 +704,14 @@ st.title("🌐 AI Agentic Supply Chain System 📦")
 st.subheader("Streamlining international shipping operations and contract management")
 
 # --- Home Section ---
-st.header("Home")
+st.header("Introduction")
 st.write(
     """
     Welcome to the AI Agentic Supply Chain System!  
     This tool is designed to enhance contract and supply chain management by leveraging state-of-the-art AI technologies.  
-    Here's how you can use this app:
-    - **Understand Contract Details**: Review and analyze shipping contracts.
-    - **Track Shipments**: Monitor the status of shipments in real time.
-    - **Optimize Supply Chain**: Improve inventory and delivery schedules.
+    Objective: Streamline operations, improve customer service, and optimize supply chain management for a shipping company through an AI-driven agent that uses Retrieval-Augmented Generation (RAG) architecture, MongoDB Atlas, and Large Language Models (LLMs).
+    Solution Overview
+    In international shipping, contracts are highly detailed, covering clauses for tariffs, insurance, timelines, and penalties. Supply chain operations add another layer of complexity, with inventory management, route optimization, and partner collaboration essential to efficient delivery. Departments across the company—operations, customer service, legal, and supply chain—need quick access to accurate information.
     """
 )
 
@@ -766,7 +778,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Add your footer content
 st.markdown(
     """
     <hr style="margin-top: 2rem; margin-bottom: 0.5rem; border: none; border-top: 1px solid #ccc;">
