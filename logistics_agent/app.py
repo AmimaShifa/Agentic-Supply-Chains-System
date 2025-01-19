@@ -286,26 +286,6 @@ class MongoDBSaver(AbstractContextManager, BaseCheckpointSaver):
         if docs:
             await self.collection.insert_many(docs)
 
-def format_document(doc):
-    """
-    Format a single document for display in the Streamlit app.
-    """
-    if isinstance(doc, dict):
-        # Extract the metadata and content
-        metadata = doc.get("metadata", {})
-        content = doc.get("page_content", "No content available")
-        
-        # Format the metadata and content
-        formatted_metadata = "\n".join([f"- **{key}:** {value}" for key, value in metadata.items()])
-        return f"{formatted_metadata}\n\n**Content:** {content}\n"
-
-    elif hasattr(doc, "metadata") and hasattr(doc, "page_content"):
-        # If it's a `Document` object
-        formatted_metadata = "\n".join([f"- **{key}:** {value}" for key, value in doc.metadata.items()])
-        return f"{formatted_metadata}\n\n**Content:** {doc.page_content}\n"
-    
-    else:
-        return str(doc)
 
 #Create Collection Search Tool
 # Create search index
@@ -563,6 +543,21 @@ Supplier Collaboration:
 - "What are the penalties if our supplier delays the shipment?"
 - "What are the terms of our contract with supplier XYZ regarding delivery schedules?"
 
+Here are your tools (call them by exactly these names):
+
+1. supply_chain_hybrid_search_tool
+2. update_transit_status
+3. get_contracts_by_transit_status
+4. get_contracts_by_inventory_status
+
+When you want to use a tool, do:
+{
+  "type": "tool",
+  "name": "supply_chain_hybrid_search_tool",
+  "args": {"query": "..."},
+  "id": "unique_id_123"
+}
+
 Remember to:
 
 - Always prioritize data accuracy and compliance with regulations.
@@ -570,6 +565,7 @@ Remember to:
 - Utilize the available tools to access and process information effectively.
 - Offer helpful insights and recommendations based on your analysis.
 - Maintain a professional and customer-centric approach in all interactions.
+
 """
 
 base_prompt = ChatPromptTemplate.from_messages(
@@ -601,57 +597,115 @@ def agent_node(state: AgentState, config: RunnableConfig):
     print("----Calling Agent Node-------")
     messages = state["messages"]
 
+    # Invoke the agent
     result = agent.invoke(messages, config)
 
     if isinstance(result, ToolMessage):
-        result = ToolMessage(**result.model_dump(exclude={"type", "name"}), name=name)
+        print(f"ToolMessage generated: {result}")
     elif isinstance(result, AIMessage):
-        result = AIMessage(**result.model_dump(exclude={"type", "name"}), name=name)
+        print(f"AIMessage generated: {result}")
 
+    # IMPORTANT: Add the newly created message to your state
+    state["messages"].append(result)
+
+    # Also return it so LangGraph can pass it to the next node
     return {
         "messages": [result],
-        "sender": name,
+        "sender": "SupplyChainAssistant",
     }
 
+
 #Step 5: Define Tool Node 
+
 tools_by_name = {tool.name: tool for tool in toolbox}
 
 
-# TODO: Use AgentState Model for return value
 def tool_node(state: AgentState):
-    print()
-    print("----Calling Tool Node-------")
-    print()
+    print("\n----Calling Tool Node-------\n")
+
+    # 1) The last message should be the AIMessage from agent_node
+    last_message = state["messages"][-1]
+    print("Last message in tool_node is:", last_message)
+
     outputs = []
-    tool_name = None
-    for tool_call in state["messages"][-1].tool_calls:
+
+    # 2) If there are no tool_calls, just return
+    if not last_message.tool_calls:
+        print("No tool calls found in the last message.")
+        return {"messages": [], "sender": "tools"}
+
+    # 3) Otherwise, iterate over each tool call
+    for tool_call in last_message.tool_calls:
         tool_name = tool_call["name"]
-        tool_result = tools_by_name[tool_name].invoke(tool_call["args"])
+        tool_args = tool_call["args"]
+        tool_call_id = tool_call["id"]
 
-        print(f"Using tool {tool_name}")
-        print(f"Result: {tool_result}")
-        print()
-
-        outputs.append(
-            ToolMessage(
-                content=json.dumps(tool_result),
-                name=tool_name,
-                tool_call_id=tool_call["id"],
+        # 4) Check if the tool name is recognized
+        if tool_name not in tools_by_name:
+            error_msg = f"No such tool: {tool_name}"
+            print(error_msg)
+            # Create a ToolMessage with the same tool_call_id (to satisfy should_continue)
+            outputs.append(
+                ToolMessage(
+                    content=json.dumps({"error": error_msg}),
+                    name=tool_name,
+                    tool_call_id=tool_call_id,
+                )
             )
-        )
+            continue
 
-    return {"messages": outputs, "sender": tool_name}
+        # 5) Invoke the tool
+        try:
+            tool_result = tools_by_name[tool_name].invoke(tool_args)
+            print(f"Using tool '{tool_name}', result: {tool_result}")
+
+            # 6) Append a ToolMessage with the correct tool_call_id
+            outputs.append(
+                ToolMessage(
+                    content=json.dumps(tool_result),
+                    name=tool_name,
+                    tool_call_id=tool_call_id,
+                )
+            )
+        except Exception as e:
+            error_msg = f"Error calling tool {tool_name}: {e}"
+            outputs.append(
+                ToolMessage(
+                    content=json.dumps({"error": error_msg}),
+                    name=tool_name,
+                    tool_call_id=tool_call_id,
+                )
+            )
+
+    # 7) Extend the state's message list with the newly created ToolMessages
+    state["messages"].extend(outputs)
+
+    return {"messages": outputs, "sender": "tools"}
 
 #Step 6: Define Graph
 # Define the conditional edge that determines whether to continue or not
 def should_continue(state: AgentState):
     messages = state["messages"]
     last_message = messages[-1]
-    # If there is no function call, then we finish
+
+    # If there's no tool call in the last message, end
     if not last_message.tool_calls:
         return "end"
-    # Otherwise if there is, we continue
+
+    # Ensure each tool call got a matching ToolMessage
+    for tool_call in last_message.tool_calls:
+        tool_call_id = tool_call["id"]
+        if not any(
+            isinstance(msg, ToolMessage) and msg.tool_call_id == tool_call_id
+            for msg in messages
+        ):
+            raise ValueError(
+                f"Expected tool_result for tool_call ID {tool_call_id} was not found."
+            )
+
     return "continue"
+
+
 # Create Graph
 workflow = StateGraph(AgentState)
 
@@ -664,7 +718,8 @@ workflow.set_entry_point("chatbot")
 workflow.add_conditional_edges(
     "chatbot", should_continue, {"continue": "tools", "end": END}
 )
-workflow.add_edge("tools", "chatbot")
+#workflow.add_edge("tools", "chatbot")
+
 
 
 
@@ -672,8 +727,8 @@ workflow.add_edge("tools", "chatbot")
 mongo_client = AsyncIOMotorClient(MONGO_URI)
 mongodb_checkpointer = MongoDBSaver(mongo_client, DB_NAME, "state_store")
 
-graph = workflow.compile(checkpointer=mongodb_checkpointer)
-
+#graph = workflow.compile(checkpointer=mongodb_checkpointer)
+graph = workflow.compile()
 #Step8
 st.set_page_config(page_title="AI Supply Chain System", layout="wide")
 st.markdown(
@@ -703,15 +758,13 @@ if "messages" not in st.session_state:
 st.title("🌐 AI Agentic Supply Chain System 📦")
 st.subheader("Streamlining international shipping operations and contract management")
 
-# --- Home Section ---
+# --- Introduction Section ---
 st.header("Introduction")
 st.write(
     """
     Welcome to the AI Agentic Supply Chain System!  
     This tool is designed to enhance contract and supply chain management by leveraging state-of-the-art AI technologies.  
     Objective: Streamline operations, improve customer service, and optimize supply chain management for a shipping company through an AI-driven agent that uses Retrieval-Augmented Generation (RAG) architecture, MongoDB Atlas, and Large Language Models (LLMs).
-    Solution Overview
-    In international shipping, contracts are highly detailed, covering clauses for tariffs, insurance, timelines, and penalties. Supply chain operations add another layer of complexity, with inventory management, route optimization, and partner collaboration essential to efficient delivery. Departments across the company—operations, customer service, legal, and supply chain—need quick access to accurate information.
     """
 )
 
@@ -736,54 +789,85 @@ st.write(
 
 # --- Chat Section ---
 st.header("Let's Chat!")
-st.text_area("Enter your query:", key="user_input", placeholder="Ask something like 'What are the customs requirements for toys shipped to Canada?'")
 
-if st.button("Submit"):
-    user_input = st.session_state.get("user_input", "").strip()
-    if user_input:
-        st.write(f"Processing your query: **{user_input}**")
-        # Here, you can call your assistant logic or model to generate a response.
-        # For now, let's simulate a response:
-        response = f"Simulated response for: {user_input}"
-        st.success(response)
-        # Store the query and response in session state
-        st.session_state["messages"].append({"user": user_input, "response": response})
-    else:
-        st.warning("Please enter a valid query.", icon="⚠")
 
-# Display previous chat history
-if st.session_state["messages"]:
-    st.markdown("---")
-    st.subheader("Chat History")
-    for i, chat in enumerate(st.session_state["messages"], 1):
-        st.write(f"**Query {i}:** {chat['user']}")
-        st.write(f"**Response {i}:** {chat['response']}")
+async def process_query(user_input: str) -> str:
+    initial_state = {
+        "messages": [HumanMessage(content=user_input, name="User")],
+        "sender": "User",
+    }
+    config = {"configurable": {"thread_id": st.session_state["thread_id"]}}
+    response_text = ""
 
-# --- Footer ---
+    # Run the entire workflow once, synchronously
+    final_output = await graph.ainvoke(initial_state, config)
+    # final_output is the last node’s {"messages": [...], "sender": ...}
 
+    # Gather the content
+    for msg in final_output["messages"]:
+        if isinstance(msg, AIMessage):
+            response_text += msg.content
+        elif isinstance(msg, ToolMessage):
+            response_text += (
+                f"\n[Tool Used: {msg.name}]\n"
+                f"Content: {msg.content}\n"
+            )
+    return response_text.strip()
+     
+            #    if chunk.get("messages"):
+             #       last_message = chunk["messages"][-1]
+
+              #      if isinstance(last_message, AIMessage):
+               #         response_text += last_message.content
+                #    elif isinstance(last_message, ToolMessage):
+                 #       response_text += (
+                  #          f"\n[Tool Used: {last_message.name}]\n"
+                   #         f"Tool Call ID: {last_message.tool_call_id}\n"
+                    #        f"Content: {json.loads(last_message.content)}\n"
+                     #   )
+       #     return response_text.strip()
+        #except Exception as e:
+         #   if attempt < max_retries - 1:
+          #      await asyncio.sleep(retry_delay)
+           #     retry_delay *= 2
+            #else:
+             #   return f"Error: {e}"
+
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []
 st.markdown(
     """
     <style>
-    /* Remove extra margin and padding from the main container */
-    .block-container {
-        padding-bottom: 1rem; /* Adjust this value to control footer spacing */
+    .stChatInput,   .stTextInput {  
+  margin: 0 auto;
+
     }
 
-    /* Center-align the footer text and reduce the bottom margin */
-    footer {
-        margin-bottom: 0; /* Remove bottom margin from the footer */
+    .st-emotion-cache-1p2n2i4 {
+        width : 1000px;
+
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-st.markdown(
-    """
-    <hr style="margin-top: 2rem; margin-bottom: 0.5rem; border: none; border-top: 1px solid #ccc;">
-    <p style="text-align: center; font-size: 0.9rem; color: #6c757d;">
-        AI Agentic Supply Chain System | Developed by Amima Shifa
-    </p>
-    """,
-    unsafe_allow_html=True,
-)
+# User input box
+user_input = st.chat_input("Ask something like 'What are the customs requirements for toys shipped to Canada?")
+if user_input:
+    
+    st.session_state["messages"].append({"role": "user", "content": user_input})
+
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    with st.spinner("Processing..."):
+        try:
+            response = asyncio.run(process_query(user_input))  # Asynchronous processing
+        except Exception as e:
+            response = f"An error occurred: {e}"
+    st.session_state["messages"].append({"role": "assistant", "content": response})
+
+    with st.chat_message("assistant"):
+        st.markdown(response)
+
