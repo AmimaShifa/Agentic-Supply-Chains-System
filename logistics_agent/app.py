@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from contextlib import AbstractContextManager
 from datetime import datetime, timezone
 from types import TracebackType
+from streamlit_navigation_bar import st_navbar
 from typing import (
     Annotated,
     Any,
@@ -25,6 +26,7 @@ from typing_extensions import Self
 # Third-Party Library Imports
 import pandas as pd
 import pymongo
+import uuid
 from pymongo.operations import SearchIndexModel
 import streamlit as st
 import anthropic
@@ -74,10 +76,6 @@ embedding_model = VoyageAIEmbeddings(
     model=VOYAGEAI_EMBEDDING_MODEL
 )
 
-st.title(" 🌐 AI AGENTIC SUPPLY CHAIN SYSTEM 📦 ")
-st.write(
-    "Enhanced Contract and Supply Chain Management for International Shipping"
-)
 
 def get_mongo_client(mongo_uri):
     """Establish and validate connection to the MongoDB."""
@@ -90,9 +88,9 @@ def get_mongo_client(mongo_uri):
     ping_result = client.admin.command("ping")
     if ping_result.get("ok") == 1.0:
         # Connection successful
-        print("Connection to MongoDB successful")
+        #print("Connection to MongoDB successful")
         return client
-    print("Connection to MongoDB failed")
+    #print("Connection to MongoDB failed")
     return None
 
 mongo_client = get_mongo_client(MONGO_URI)
@@ -288,6 +286,26 @@ class MongoDBSaver(AbstractContextManager, BaseCheckpointSaver):
         if docs:
             await self.collection.insert_many(docs)
 
+def format_document(doc):
+    """
+    Format a single document for display in the Streamlit app.
+    """
+    if isinstance(doc, dict):
+        # Extract the metadata and content
+        metadata = doc.get("metadata", {})
+        content = doc.get("page_content", "No content available")
+        
+        # Format the metadata and content
+        formatted_metadata = "\n".join([f"- **{key}:** {value}" for key, value in metadata.items()])
+        return f"{formatted_metadata}\n\n**Content:** {content}\n"
+
+    elif hasattr(doc, "metadata") and hasattr(doc, "page_content"):
+        # If it's a `Document` object
+        formatted_metadata = "\n".join([f"- **{key}:** {value}" for key, value in doc.metadata.items()])
+        return f"{formatted_metadata}\n\n**Content:** {doc.page_content}\n"
+    
+    else:
+        return str(doc)
 
 #Create Collection Search Tool
 # Create search index
@@ -366,9 +384,9 @@ hybrid_search = MongoDBAtlasHybridSearchRetriever(
 )
 
 # Let's test that hybrid search works
-query = "What are the customs requirements for toys shipped to Canada?"
-hybrid_search_result = hybrid_search.get_relevant_documents(query)
-pprint.pprint(hybrid_search_result)
+#query = "What are the customs requirements for toys shipped to Canada?"
+#hybrid_search_result = hybrid_search.get_relevant_documents(query)
+#pprint.pprint(hybrid_search_result)
 
 @tool
 def supply_chain_hybrid_search_tool(query: str):
@@ -659,63 +677,102 @@ graph = workflow.compile(checkpointer=mongodb_checkpointer)
 
 
 #Step8
-import asyncio
+st.set_page_config(page_title="AI Supply Chain System", layout="wide")
 
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+# Initialize session state for thread ID and message history
+if "thread_id" not in st.session_state:
+    st.session_state["thread_id"] = str(uuid.uuid4())  # Generate a new thread ID
 
-user_input = st.text_area(
-    "Enter your query:",
-    placeholder="Ask something like 'What are the customs requirements for toys shipped to Canada?'",
-    height=150,
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []  # Initialize message history
+
+# Page Layout
+st.title("🌐 AI Agentic Supply Chain System 📦")
+st.subheader("Streamlining international shipping operations and contract management")
+
+# --- Home Section ---
+st.header("Home")
+st.write(
+    """
+    Welcome to the AI Agentic Supply Chain System!  
+    This tool is designed to enhance contract and supply chain management by leveraging state-of-the-art AI technologies.  
+    Here's how you can use this app:
+    - **Understand Contract Details**: Review and analyze shipping contracts.
+    - **Track Shipments**: Monitor the status of shipments in real time.
+    - **Optimize Supply Chain**: Improve inventory and delivery schedules.
+    """
 )
-submit_button = st.button("Submit")
 
-# Function to process user queries through the graph
-async def process_query(user_input: str):
-    config = {"configurable": {"thread_id": "0"}}
-    state = {"messages": [HumanMessage(content=user_input, name="Human")]}
+# --- About Section ---
+st.header("About the System")
+st.write(
+    """
+    The AI Agentic Supply Chain System is powered by advanced AI technologies, including:
+    - **LangChain**: For intelligent decision-making.
+    - **Anthropic AI**: For generating insightful responses.
+    - **MongoDB**: For managing contract and shipment data.
 
-    max_retries = 3
-    retry_delay = 1
+    **Key Features:**
+    - Retrieve shipment details and contract information.
+    - Perform hybrid (vector + full-text) searches for inventory or supply chain data.
+    - Update shipment statuses in real time.
+    - Provide actionable insights to improve efficiency.
 
-    response = []
+    Navigate below to interact with the intelligent assistant.
+    """
+)
 
-    for attempt in range(max_retries):
-        try:
-            async for chunk in graph.astream(state, config, stream_mode="values"):
-                if chunk.get("messages"):
-                    last_message = chunk["messages"][-1]
-                    if isinstance(last_message, AIMessage):
-                        last_message.name = last_message.name or "AI"
-                        response.append(last_message.content)
-                    elif isinstance(last_message, ToolMessage):
-                        response.append(
-                            str(
-                    f"Content: {last_message.content}\n"
-                )
-                        )
-            break
-        except Exception as e:
-            if attempt < max_retries - 1:
-                st.warning(f"An unexpected error occurred: {e!s}. Retrying...")
-                retry_delay *= 2
-                await asyncio.sleep(retry_delay)
-            else:
-                st.error(f"Max retries reached. API error: {e!s}")
-                break
+# --- Chat Section ---
+st.header("Let's Chat!")
+st.text_area("Enter your query:", key="user_input", placeholder="Ask something like 'What are the customs requirements for toys shipped to Canada?'")
 
-    return "\n".join(map(str, response))
-
-
-# Handle user submission
-if submit_button and user_input.strip():
-    # Inform the user that the assistant is processing the query
-    with st.spinner("Processing your query, please wait..."):
-        # Run the async function to process the query
-        response = asyncio.run(process_query(user_input))
-        if response:
-            st.success("Assistant Response:")
-            st.write(response)
-else:
-    if submit_button:
+if st.button("Submit"):
+    user_input = st.session_state.get("user_input", "").strip()
+    if user_input:
+        st.write(f"Processing your query: **{user_input}**")
+        # Here, you can call your assistant logic or model to generate a response.
+        # For now, let's simulate a response:
+        response = f"Simulated response for: {user_input}"
+        st.success(response)
+        # Store the query and response in session state
+        st.session_state["messages"].append({"user": user_input, "response": response})
+    else:
         st.warning("Please enter a valid query.", icon="⚠")
+
+# Display previous chat history
+if st.session_state["messages"]:
+    st.markdown("---")
+    st.subheader("Chat History")
+    for i, chat in enumerate(st.session_state["messages"], 1):
+        st.write(f"**Query {i}:** {chat['user']}")
+        st.write(f"**Response {i}:** {chat['response']}")
+
+# --- Footer ---
+
+st.markdown(
+    """
+    <style>
+    /* Remove extra margin and padding from the main container */
+    .block-container {
+        padding-bottom: 1rem; /* Adjust this value to control footer spacing */
+    }
+
+    /* Center-align the footer text and reduce the bottom margin */
+    footer {
+        margin-bottom: 0; /* Remove bottom margin from the footer */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Add your footer content
+st.markdown(
+    """
+    <hr style="margin-top: 2rem; margin-bottom: 0.5rem; border: none; border-top: 1px solid #ccc;">
+    <p style="text-align: center; font-size: 0.9rem; color: #6c757d;">
+        AI Agentic Supply Chain System | Developed by Amima Shifa
+    </p>
+    """,
+    unsafe_allow_html=True,
+)
