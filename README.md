@@ -41,7 +41,55 @@ International shipping contracts contain detailed clauses covering **tariffs, in
 - 🚢 **Shipment Tracking**: "Update Shipment **SHP-2024-001** to 'Delayed' and notify relevant teams."
 
 ---
+### 🏢 AI Agent Interactive Example
+**User:** Hi there  
+**Assistant:** ----Calling Agent Node-------  
+Hello! Welcome to our AI-powered Logistics Assistant. I'm here to help you with any questions or tasks related to our international shipping operations, contract details, shipment information, inventory data, and supply chain updates. How may I assist you today?  
 
+Is there a specific area you'd like information on, such as:
+1. Checking the status of a shipment
+2. Inquiring about contract details
+3. Getting updates on inventory
+4. Requesting information about shipping routes or customs requirements
+5. Updating shipment statuses
+6. Any other logistics-related query
+
+**User:** What can you do?  
+**Assistant:** ----Calling Agent Node-------  
+Certainly! I'd be happy to explain my capabilities as an AI-powered Logistics Assistant. I'm designed to help with various aspects of international shipping and logistics. Here's an overview of what I can do:
+
+1. **Information Retrieval:**
+   - Search and provide details on inventory, contracts, and shipments.
+   - Retrieve contract information based on transit or inventory status.
+
+2. **Shipment Status Management:**
+   - Update and track shipment statuses.
+
+3. **Contract and Inventory Analysis:**
+   - Analyze contract terms and inventory levels.
+
+4. **Supply Chain Optimization:**
+   - Provide details on shipping routes, expected delivery timelines, and potential delays.
+
+5. **Customer Service Support:**
+   - Answer customs-related queries and provide shipment ETAs.
+
+6. **Operational Efficiency:**
+   - Provide insights on penalties for delays and contract breaches.
+
+7. **Regulatory Compliance:**
+   - Offer guidance on shipping regulations and requirements.
+
+To use these capabilities, simply ask me questions like:
+- "What's the status of shipment SHP-2024-001?"
+- "Are there any delayed shipments to Europe?"
+- "What are the customs requirements for electronics shipped to Canada?"
+- "Update the status of Shipment SHP-2024-002 to 'Delayed'"
+- "What are the terms in our contract with supplier XYZ regarding delivery schedules?"
+
+Let me know how I can assist you further!
+
+---
 ## 🛡️ Security Considerations
 - **Role-Based Access Control** – Limit who can update shipment statuses.
 - **Data Encryption** – Ensure contract data is stored securely.
